@@ -103,7 +103,7 @@ async function createQRIS(amount, codeqr) {
             idtransaksi: generateTransactionId(),
             jumlah: amount,
             expired: generateExpirationTime(),
-            imageqris: { 
+            qrImageUrl: { 
             url: uploadedFile
             }
         };
