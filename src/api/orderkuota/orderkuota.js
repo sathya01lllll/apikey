@@ -1,10 +1,8 @@
+
 const axios = require('axios');
-const fs = require('fs');
 const crypto = require("crypto");
-const FormData = require('form-data');
 const QRCode = require('qrcode');
-const bodyParser = require('body-parser');
-const { ImageUploadService } = require('node-upload-images')
+const { ImageUploadService } = require('node-upload-images');
 
 function convertCRC16(str) {
     let crc = 0xFFFF;
@@ -24,12 +22,11 @@ function convertCRC16(str) {
 
     let hex = crc & 0xFFFF;
     hex = ("000" + hex.toString(16).toUpperCase()).slice(-4);
-
     return hex;
 }
 
 function generateTransactionId() {
-    return crypto.randomBytes(5).toString('hex').toUpperCase()
+    return crypto.randomBytes(5).toString('hex').toUpperCase();
 }
 
 function generateExpirationTime() {
@@ -41,8 +38,8 @@ function generateExpirationTime() {
 async function elxyzFile(buffer) {
     return new Promise(async (resolve, reject) => {
         try {
-const service = new ImageUploadService('pixhost.to');
-let { directLink } = await service.uploadFromBinary(buffer, 'skyzo.png');
+            const service = new ImageUploadService('pixhost.to');
+            let { directLink } = await service.uploadFromBinary(buffer, 'qris.png');
             resolve(directLink);
         } catch (error) {
             console.error('🚫 Upload Failed:', error);
@@ -51,41 +48,11 @@ let { directLink } = await service.uploadFromBinary(buffer, 'skyzo.png');
     });
 }
 
-async function generateQRIS(amount) {
-    try {
-        let qrisData = "code qris lu";
-
-        qrisData = qrisData.slice(0, -4);
-        const step1 = qrisData.replace("010211", "010212");
-        const step2 = step1.split("5802ID");
-
-        amount = amount.toString();
-        let uang = "54" + ("0" + amount.length).slice(-2) + amount;
-        uang += "5802ID";
-
-        const result = step2[0] + uang + step2[1] + convertCRC16(step2[0] + uang + step2[1]);
-
-        const buffer = await QRCode.toBuffer(result);
-
-        const uploadedFile = await elxyzFile(buffer);
-
-        return {
-            transactionId: generateTransactionId(),
-            amount: amount,
-            expirationTime: generateExpirationTime(),
-            qrImageUrl: uploadedFile
-        };
-    } catch (error) {
-        console.error('Error generating and uploading QR code:', error);
-        throw error;
-    }
-}
-
 async function createQRIS(amount, codeqr) {
     try {
         let qrisData = codeqr;
 
-        qrisData = qrisData.slice(0, -4);
+        qrisData = qrisData.slice(0, -4); // Remove CRC
         const step1 = qrisData.replace("010211", "010212");
         const step2 = step1.split("5802ID");
 
@@ -96,15 +63,14 @@ async function createQRIS(amount, codeqr) {
         const result = step2[0] + uang + step2[1] + convertCRC16(step2[0] + uang + step2[1]);
 
         const buffer = await QRCode.toBuffer(result);
-
         const uploadedFile = await elxyzFile(buffer);
 
         return {
             idtransaksi: generateTransactionId(),
             jumlah: amount,
             expired: generateExpirationTime(),
-            qrImageUrl: { 
-            url: uploadedFile
+            imageqris: {
+                url: uploadedFile
             }
         };
     } catch (error) {
@@ -113,91 +79,104 @@ async function createQRIS(amount, codeqr) {
     }
 }
 
-async function checkQRISStatus() {
+async function checkQRISStatus(merchant, keyorkut) {
     try {
-        const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/isi pakai merchant orkut/apikey orkut`;
+        const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${keyorkut}`;
         const response = await axios.get(apiUrl);
         const result = response.data;
-        const data = result.data;
-        let capt = '*Q R I S - M U T A S I*\n\n';
-        if (data.length === 0) {
-            capt += 'Tidak ada data mutasi.';
-        } else {
-            data.forEach(entry => {
-                capt += '```Tanggal:```' + ` ${entry.date}\n`;
-                capt += '```Issuer:```' + ` ${entry.brand_name}\n`;
-                capt += '```Nominal:```' + ` Rp ${entry.amount}\n\n`;
-            });
-        }
-        return capt;
+
+        const latestTransaction = result.data && result.data.length > 0 ? result.data[0] : null;
+        return latestTransaction;
     } catch (error) {
-        console.error('Error checking QRIS status:', error);
         throw error;
     }
 }
 
 module.exports = function(app) {
-app.get('/orderkuota/createpayment', async (req, res) => {
-    const { apikey, amount, codeqr} = req.query;
-    const check = global.apikey
-    if (!global.apikey.includes(apikey)) return res.json("Apikey tidak valid.")
-    try {
-        const qrData = await createQRIS(amount, codeqr);
-        res.status(200).json({
+
+    // 🔸 QRIS Order Kuota Create Payment
+    app.get('/orderkuota/createpayment', async (req, res) => {
+        const { apikey, amount, codeqr } = req.query;
+        if (!global.apikey.includes(apikey)) return res.json("Apikey tidak valid.");
+
+        try {
+            const qrData = await createQRIS(amount, codeqr);
+            res.status(200).json({
                 status: true,
                 result: qrData
-        });      
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-    
-app.get('/orderkuota/cekstatus', async (req, res) => {
-    const { merchant, keyorkut, apikey } = req.query;
-    const check = global.apikey
-    if (!global.apikey.includes(apikey)) return res.json("Apikey tidak valid.")
-        try {
-        const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${keyorkut}`;
-        const response = await axios.get(apiUrl);
-        const result = await response.data;
-                // Check if data exists and get the latest transaction
-        const latestTransaction = result.data && result.data.length > 0 ? result.data[0] : null;
-                if (latestTransaction) {
-         res.status(200).json({
-            status: true, 
-            result: latestTransaction
-        })
-        } else {
-            res.json({ message: "No transactions found." });
+            });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
         }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-})
+    });
 
-app.get('/orderkuota/ceksaldo', async (req, res) => {
-    const { merchant, keyorkut, apikey } = req.query;
-    const check = global.apikey
-    if (!global.apikey.includes(apikey)) return res.json("Apikey tidak valid.")
+    // 🔸 QRIS Order Kuota Cek Status
+    app.get('/orderkuota/cekstatus', async (req, res) => {
+        const { merchant, keyorkut, apikey } = req.query;
+        if (!global.apikey.includes(apikey)) return res.json("Apikey tidak valid.");
+
         try {
-        const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${keyorkut}`;
-        const response = await axios.get(apiUrl);
-        const result = await response.data;
-                // Check if data exists and get the latest transaction
-        const latestTransaction = result.data && result.data.length > 0 ? result.data[0] : null;
-                if (latestTransaction) {
-         res.status(200).json({
-            status: true, 
-            result: {
-            saldo_qris: latestTransaction.balance
+            const latestTransaction = await checkQRISStatus(merchant, keyorkut);
+            if (latestTransaction) {
+                res.status(200).json({
+                    status: true,
+                    result: latestTransaction
+                });
+            } else {
+                res.json({ message: "No transactions found." });
             }
-        })
-        } else {
-            res.json({ message: "No transactions found." });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
         }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-})
+    });
 
-}
+    // 🔸 QRIS Order Kuota Cek Saldo
+    app.get('/orderkuota/ceksaldo', async (req, res) => {
+        const { merchant, keyorkut, apikey } = req.query;
+        if (!global.apikey.includes(apikey)) return res.json("Apikey tidak valid.");
+
+        try {
+            const latestTransaction = await checkQRISStatus(merchant, keyorkut);
+            if (latestTransaction) {
+                res.status(200).json({
+                    status: true,
+                    result: {
+                        saldo_qris: latestTransaction.balance
+                    }
+                });
+            } else {
+                res.json({ message: "No transactions found." });
+            }
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // ✅ QRIS Global: Create QRIS (tambahan)
+    app.get('/createQRIS', async (req, res) => {
+        const { apikey, amount, codeqr } = req.query;
+        if (!global.apikey.includes(apikey)) return res.json({ status: false, message: "Apikey tidak valid." });
+
+        if (!amount || !codeqr) {
+            return res.status(400).json({
+                status: false,
+                message: "Parameter 'amount' dan 'codeqr' wajib diisi"
+            });
+        }
+
+        try {
+            const qrData = await createQRIS(amount, codeqr);
+            res.status(200).json({
+                status: true,
+                message: "QRIS berhasil dibuat",
+                result: qrData
+            });
+        } catch (error) {
+            res.status(500).json({
+                status: false,
+                message: "Gagal membuat QRIS",
+                error: error.message
+            });
+        }
+    });
+};
