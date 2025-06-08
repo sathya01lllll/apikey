@@ -50,10 +50,10 @@ async function createQRIS(amount, codeqr) {
         const uploadedFile = await elxyzFile(buffer);
 
         return {
-            idtransaksi: generateTransactionId(),
-            jumlah: amount,
-            expired: generateExpirationTime(),
-            imageqris: { url: uploadedFile }
+            transactionId: generateTransactionId(),
+            amount: amount,
+            expirationTime: generateExpirationTime(),
+            qrImageUrl: uploadedFile,
         };
     } catch (error) {
         console.error('Error generating and uploading QR code:', error);
@@ -79,7 +79,7 @@ module.exports = function(app) {
         if (!global.apikey.includes(apikey)) return res.json("Apikey tidak valid.");
 
         try {
-            const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${keyorkut}`;
+            const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${global.merchantIdOrderKuota}/${global.apiOrderKuota}`;
             const response = await axios.get(apiUrl);
             const result = response.data;
             const latestTransaction = result.data && result.data.length > 0 ? result.data[0] : null;
