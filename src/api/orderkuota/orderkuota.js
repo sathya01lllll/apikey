@@ -100,10 +100,11 @@ async function createQRIS(amount, codeqr) {
         const uploadedFile = await elxyzFile(buffer);
 
         return {
-            transactionId: generateTransactionId(),
-            amount: amount,
-            expirationTime: generateExpirationTime(),
-            qrImageUrl: uploadedFile,
+            idtransaksi: generateTransactionId(),
+            jumlah: amount,
+            expired: generateExpirationTime(),
+            imageqris: { 
+            url: uploadedFile
             }
         };
     } catch (error) {
@@ -196,6 +197,7 @@ app.get('/orderkuota/ceksaldo', async (req, res) => {
         }
     } catch (error) {
         res.status(500).json({ error: error.message });
-     }
-    });
-};
+    }
+})
+
+}
