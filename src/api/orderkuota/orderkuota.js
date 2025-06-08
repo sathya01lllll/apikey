@@ -99,7 +99,7 @@ async function createQRIS(amount, codeqr) {
 
         const uploadedFile = await elxyzFile(buffer);
 
-       return {
+        return {
             transactionId: generateTransactionId(),
             amount: amount,
             expirationTime: generateExpirationTime(),
@@ -196,7 +196,6 @@ app.get('/orderkuota/ceksaldo', async (req, res) => {
         }
     } catch (error) {
         res.status(500).json({ error: error.message });
-    }
-})
-
-}
+     }
+    });
+};
