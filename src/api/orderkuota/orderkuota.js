@@ -6,9 +6,10 @@ const QRCode = require('qrcode');
 const bodyParser = require('body-parser');
 const { ImageUploadService } = require('node-upload-images')
 
+// Fungsi untuk konversi CRC16
 function convertCRC16(str) {
     if (!str || typeof str !== 'string') {
-        throw new Error('Invalid input for CRC16 calculation');
+        throw new Error('Input tidak valid untuk perhitungan CRC16');
     }
     
     let crc = 0xFFFF;
@@ -32,16 +33,19 @@ function convertCRC16(str) {
     return hex;
 }
 
+// Fungsi untuk membuat ID transaksi unik
 function generateTransactionId() {
     return crypto.randomBytes(5).toString('hex').toUpperCase()
 }
 
+// Fungsi untuk membuat waktu kedaluwarsa (30 menit dari sekarang)
 function generateExpirationTime() {
     const expirationTime = new Date();
     expirationTime.setMinutes(expirationTime.getMinutes() + 30);
     return expirationTime.toISOString();
 }
 
+// Fungsi untuk mengunggah file gambar
 async function elxyzFile(buffer) {
     return new Promise(async (resolve, reject) => {
         try {
@@ -49,16 +53,17 @@ async function elxyzFile(buffer) {
             let { directLink } = await service.uploadFromBinary(buffer, 'sathya.png');
             resolve(directLink);
         } catch (error) {
-            console.error('🚫 Upload Failed:', error);
+            console.error('🚫 Gagal mengunggah:', error);
             reject(error);
         }
     });
 }
 
-async function generateQRIS(amount) {
+// Fungsi untuk membuat QRIS
+async function generateQRIS(jumlah) {
     try {
-        if (!amount || isNaN(amount)) {
-            throw new Error('Invalid amount');
+        if (!jumlah || isNaN(jumlah)) {
+            throw new Error('Jumlah tidak valid');
         }
 
         let qrisData = "code qris lu";
@@ -67,8 +72,8 @@ async function generateQRIS(amount) {
         const step1 = qrisData.replace("010211", "010212");
         const step2 = step1.split("5802ID");
 
-        amount = amount.toString();
-        let uang = "54" + ("0" + amount.length).slice(-2) + amount;
+        jumlah = jumlah.toString();
+        let uang = "54" + ("0" + jumlah.length).slice(-2) + jumlah;
         uang += "5802ID";
 
         const result = step2[0] + uang + step2[1] + convertCRC16(step2[0] + uang + step2[1]);
@@ -78,34 +83,35 @@ async function generateQRIS(amount) {
         const uploadedFile = await elxyzFile(buffer);
 
         return {
-            transactionId: generateTransactionId(),
-            amount: amount,
-            expirationTime: generateExpirationTime(),
-            qrImageUrl: uploadedFile
+            idTransaksi: generateTransactionId(),
+            jumlah: jumlah,
+            waktuKedaluwarsa: generateExpirationTime(),
+            urlGambarQR: uploadedFile
         };
     } catch (error) {
-        console.error('Error generating and uploading QR code:', error);
+        console.error('Error saat membuat dan mengunggah QR code:', error);
         throw error;
     }
 }
 
-async function createQRIS(amount, codeqr) {
+// Fungsi untuk membuat QRIS dengan kode QR khusus
+async function createQRIS(jumlah, kodeQR) {
     try {
-        if (!amount || isNaN(amount)) {
-            throw new Error('Invalid amount');
+        if (!jumlah || isNaN(jumlah)) {
+            throw new Error('Jumlah tidak valid');
         }
-        if (!codeqr || typeof codeqr !== 'string') {
-            throw new Error('Invalid QR code data');
+        if (!kodeQR || typeof kodeQR !== 'string') {
+            throw new Error('Data QR code tidak valid');
         }
 
-        let qrisData = codeqr;
+        let qrisData = kodeQR;
 
         qrisData = qrisData.slice(0, -4);
         const step1 = qrisData.replace("010211", "010212");
         const step2 = step1.split("5802ID");
 
-        amount = amount.toString();
-        let uang = "54" + ("0" + amount.length).slice(-2) + amount;
+        jumlah = jumlah.toString();
+        let uang = "54" + ("0" + jumlah.length).slice(-2) + jumlah;
         uang += "5802ID";
 
         const result = step2[0] + uang + step2[1] + convertCRC16(step2[0] + uang + step2[1]);
@@ -115,164 +121,187 @@ async function createQRIS(amount, codeqr) {
         const uploadedFile = await elxyzFile(buffer);
 
         return {
-            idtransaksi: generateTransactionId(),
-            jumlah: amount,
-            expired: generateExpirationTime(),
-            imageqris: { 
+            idTransaksi: generateTransactionId(),
+            jumlah: jumlah,
+            kedaluwarsa: generateExpirationTime(),
+            gambarQR: { 
                 url: uploadedFile
             }
         };
     } catch (error) {
-        console.error('Error generating and uploading QR code:', error);
+        console.error('Error saat membuat dan mengunggah QR code:', error);
         throw error;
     }
 }
 
-async function checkQRISStatus(merchant, keyorkut) {
+// Fungsi untuk memeriksa status QRIS (YANG DIPERBAIKI)
+async function checkQRISStatus(merchant, kunciAPI) {
     try {
-        if (!merchant || !keyorkut) {
-            throw new Error('Merchant and API key are required');
+        if (!merchant || !kunciAPI) {
+            throw new Error('Merchant dan kunci API diperlukan');
         }
 
-        const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${keyorkut}`;
-        const response = await axios.get(apiUrl);
-        const result = response.data;
-        const data = result.data;
+        const urlAPI = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${kunciAPI}`;
+        const response = await axios.get(urlAPI, {
+            timeout: 10000 // Timeout 10 detik
+        });
         
-        let capt = '*Q R I S - M U T A S I*\n\n';
-        if (!data || data.length === 0) {
-            capt += 'Tidak ada data mutasi.';
+        if (!response.data) {
+            throw new Error('Respon tidak valid dari server');
+        }
+
+        const hasil = response.data;
+        const data = hasil.data || [];
+        
+        // Format teks untuk output
+        let teksOutput = '*MUTASI QRIS*\n\n';
+        
+        if (data.length === 0) {
+            teksOutput += 'Tidak ada data mutasi.';
         } else {
-            data.forEach(entry => {
-                capt += '```Tanggal:```' + ` ${entry.date}\n`;
-                capt += '```Issuer:```' + ` ${entry.brand_name}\n`;
-                capt += '```Nominal:```' + ` Rp ${entry.amount}\n\n`;
+            data.forEach(transaksi => {
+                teksOutput += `📅 Tanggal: ${transaksi.date || 'Tidak diketahui'}\n`;
+                teksOutput += `🏦 Issuer: ${transaksi.brand_name || 'Tidak diketahui'}\n`;
+                teksOutput += `💵 Nominal: Rp ${transaksi.amount || '0'}\n\n`;
             });
         }
-        return capt;
+        
+        return {
+            sukses: true,
+            data: data,
+            pesan: teksOutput
+        };
     } catch (error) {
-        console.error('Error checking QRIS status:', error);
-        throw error;
+        console.error('Gagal memeriksa status QRIS:', error);
+        
+        // Menentukan pesan error yang lebih spesifik
+        let pesanError = 'Gagal memeriksa status QRIS';
+        if (error.response) {
+            if (error.response.status === 404) {
+                pesanError = 'Endpoint tidak ditemukan';
+            } else if (error.response.status === 401) {
+                pesanError = 'Autentikasi gagal, kunci API tidak valid';
+            }
+        } else if (error.request) {
+            pesanError = 'Tidak ada respon dari server';
+        }
+        
+        throw new Error(`${pesanError}: ${error.message}`);
     }
 }
 
+// Ekspor modul dengan endpoint API
 module.exports = function(app) {
     app.use(bodyParser.json());
     app.use(bodyParser.urlencoded({ extended: true }));
 
-    // Error handling middleware
+    // Middleware untuk penanganan error
     app.use((err, req, res, next) => {
         console.error(err.stack);
         res.status(500).json({ 
             status: false,
-            message: 'Internal server error',
+            pesan: 'Terjadi kesalahan internal server',
             error: err.message 
         });
     });
 
+    // Endpoint untuk membuat pembayaran
     app.get('/orderkuota/createpayment', async (req, res, next) => {
         try {
-            const { apikey, amount, codeqr } = req.query;
+            const { apikey, jumlah, kodeqr } = req.query;
             
             if (!global.apikey || !global.apikey.includes(apikey)) {
                 return res.status(401).json({
                     status: false,
-                    message: "Apikey tidak valid."
+                    pesan: "Kunci API tidak valid."
                 });
             }
             
-            if (!amount || !codeqr) {
+            if (!jumlah || !kodeqr) {
                 return res.status(400).json({
                     status: false,
-                    message: "Amount and codeqr are required"
+                    pesan: "Jumlah dan kode QR diperlukan"
                 });
             }
 
-            const qrData = await createQRIS(amount, codeqr);
+            const dataQR = await createQRIS(jumlah, kodeqr);
             res.status(200).json({
                 status: true,
-                result: qrData
+                hasil: dataQR
             });      
         } catch (error) {
             next(error);
         }
     });
     
+    // Endpoint untuk memeriksa status (YANG DIPERBAIKI)
     app.get('/orderkuota/cekstatus', async (req, res, next) => {
         try {
-            const { merchant, keyorkut, apikey } = req.query;
+            const { merchant, kunciorkut, apikey } = req.query;
             
             if (!global.apikey || !global.apikey.includes(apikey)) {
                 return res.status(401).json({
                     status: false,
-                    message: "Apikey tidak valid."
+                    pesan: "Kunci API tidak valid."
                 });
             }
             
-            if (!merchant || !keyorkut) {
+            if (!merchant || !kunciorkut) {
                 return res.status(400).json({
                     status: false,
-                    message: "Merchant and keyorkut are required"
+                    pesan: "Merchant dan kunci API QRIS diperlukan"
                 });
             }
 
-            const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${keyorkut}`;
-            const response = await axios.get(apiUrl);
-            const result = response.data;
+            const status = await checkQRISStatus(merchant, kunciorkut);
             
-            const latestTransaction = result.data && result.data.length > 0 ? result.data[0] : null;
-            
-            if (latestTransaction) {
-                res.status(200).json({
-                    status: true, 
-                    result: latestTransaction
-                });
-            } else {
-                res.status(404).json({ 
-                    status: false,
-                    message: "No transactions found." 
-                });
-            }
+            res.status(200).json({
+                status: status.sukses,
+                hasil: status.data,
+                pesan: status.pesan
+            });
         } catch (error) {
             next(error);
         }
     });
 
+    // Endpoint untuk memeriksa saldo
     app.get('/orderkuota/ceksaldo', async (req, res, next) => {
         try {
-            const { merchant, keyorkut, apikey } = req.query;
+            const { merchant, kunciorkut, apikey } = req.query;
             
             if (!global.apikey || !global.apikey.includes(apikey)) {
                 return res.status(401).json({
                     status: false,
-                    message: "Apikey tidak valid."
+                    pesan: "Kunci API tidak valid."
                 });
             }
             
-            if (!merchant || !keyorkut) {
+            if (!merchant || !kunciorkut) {
                 return res.status(400).json({
                     status: false,
-                    message: "Merchant and keyorkut are required"
+                    pesan: "Merchant dan kunci API QRIS diperlukan"
                 });
             }
 
-            const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${keyorkut}`;
-            const response = await axios.get(apiUrl);
-            const result = response.data;
+            const status = await checkQRISStatus(merchant, kunciorkut);
             
-            const latestTransaction = result.data && result.data.length > 0 ? result.data[0] : null;
+            // Cari saldo dari transaksi terakhir
+            const saldo = status.data && status.data.length > 0 
+                ? status.data[0].balance 
+                : null;
             
-            if (latestTransaction && latestTransaction.balance !== undefined) {
+            if (saldo !== null) {
                 res.status(200).json({
-                    status: true, 
-                    result: {
-                        saldo_qris: latestTransaction.balance
+                    status: true,
+                    hasil: {
+                        saldo_qris: saldo
                     }
                 });
             } else {
                 res.status(404).json({ 
                     status: false,
-                    message: "No balance information found." 
+                    pesan: "Informasi saldo tidak ditemukan" 
                 });
             }
         } catch (error) {
@@ -280,11 +309,11 @@ module.exports = function(app) {
         }
     });
 
-    // 404 handler for undefined routes
+    // Penangan untuk endpoint yang tidak ditemukan
     app.use((req, res) => {
         res.status(404).json({
             status: false,
-            message: "Endpoint not found"
+            pesan: "Endpoint tidak ditemukan"
         });
     });
 };
